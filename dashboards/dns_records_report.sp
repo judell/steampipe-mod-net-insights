@@ -6,7 +6,7 @@ locals {
 
 dashboard "dns_records_report" {
 
-  title = "DNS Records Report"
+  title         = "DNS Records Report"
   documentation = file("./dashboards/docs/dns_records_report.md")
 
   tags = merge(local.dns_common_tags, {
@@ -30,37 +30,19 @@ dashboard "dns_records_report" {
     container {
       width = 6
       table {
-        type  = "line"
-        query = query.dns_parent_record
-        args  = {
-          domain_name_input = self.input.domain_name_input.value
-        }
+        query = query.dns_parent_a_record
+        args = [ self.input.domain_name_input.value ]
       }
-
-      /*
-      table {
-        query = query.dns_parent_ns_record
-        args  = {
-          domain_name_input = self.input.domain_name_input.value
-        }
-      }
-      */
     }
 
     container {
-
       width = 6
-
       table {
         query = query.dns_parent_report
-        args  = {
-          domain_name_input = self.input.domain_name_input.value
-        }
-
+        args = [ self.input.domain_name_input.value ]
         column "Result" {
           wrap = "all"
         }
-
         column "Recommendation" {
           wrap = "all"
         }
@@ -76,22 +58,16 @@ dashboard "dns_records_report" {
     table {
       width = 6
       query = query.dns_ns_record
-      args  = {
-        domain_name_input = self.input.domain_name_input.value
-      }
+      args = [ self.input.domain_name_input.value ]
     }
 
     table {
       width = 6
       query = query.dns_ns_report
-      args  = {
-        domain_name_input = self.input.domain_name_input.value
-      }
-
+      args = [ self.input.domain_name_input.value ]
       column "Result" {
         wrap = "all"
       }
-
       column "Recommendation" {
         wrap = "all"
       }
@@ -104,25 +80,18 @@ dashboard "dns_records_report" {
     title = "Start of Authority (SOA)"
 
     table {
-      type  = "line"
       width = 6
       query = query.dns_soa_record
-      args  = {
-        domain_name_input = self.input.domain_name_input.value
-      }
+      args = [ self.input.domain_name_input.value ]
     }
 
     table {
       width = 6
       query = query.dns_soa_report
-      args  = {
-        domain_name_input = self.input.domain_name_input.value
-      }
-
+      args = [ self.input.domain_name_input.value ]
       column "Result" {
         wrap = "all"
       }
-
       column "Recommendation" {
         wrap = "all"
       }
@@ -137,22 +106,16 @@ dashboard "dns_records_report" {
     table {
       width = 6
       query = query.dns_mx_record
-      args  = {
-        domain_name_input = self.input.domain_name_input.value
-      }
+      args = [ self.input.domain_name_input.value ]
     }
 
     table {
       width = 6
       query = query.dns_mx_report
-      args  = {
-        domain_name_input = self.input.domain_name_input.value
-      }
-
+      args = [ self.input.domain_name_input.value ]
       column "Result" {
         wrap = "all"
       }
-
       column "Recommendation" {
         wrap = "all"
       }
@@ -160,94 +123,70 @@ dashboard "dns_records_report" {
   }
 }
 
-query "dns_parent_record" {
-  sql = <<-EOQ
-    with domain_list as (
-      select distinct domain, substring( domain from '^(?:[^/:]*:[^/@]*@)?(?:[^/:.]*\.)+([^:/]+)' ) as tld from net_dns_record where domain = $1
-    ),
-    domain_parent_server as (
-      select l.domain, d.domain as tld, d.target as parent_server from net_dns_record as d inner join domain_list as l on d.domain = l.tld where d.type = 'SOA'
-    ),
-    domain_parent_server_ip as (
-      select * from net_dns_record where domain in (select parent_server from domain_parent_server)
-    ),
-    domain_parent_server_with_ip as (
-      select domain_parent_server.domain as "Domain", domain_parent_server.tld as "Top Level Domain (TLD)", domain_parent_server.parent_server as "Parent Server", domain_parent_server_ip.ip as "IP Address" from domain_parent_server inner join domain_parent_server_ip on domain_parent_server.parent_server = domain_parent_server_ip.domain where domain_parent_server_ip.type = 'A' order by domain_parent_server.domain
-    )
-    select * from domain_parent_server_with_ip;
+query "dns_parent_a_record" {
+  sql = <<EOQ
+    select * from dns_parent_a_record($1)
   EOQ
 
   param "domain_name_input" {}
 }
 
-query "dns_parent_ns_record" {
-  sql = <<-EOQ
-    with domain_list as (
-      select distinct domain, substring( domain from '^(?:[^/:]*:[^/@]*@)?(?:[^/:.]*\.)+([^:/]+)' ) as tld from net_dns_record where domain = $1
-    ),
-    domain_parent_server as (
-      select l.domain, d.domain as tld, d.target as parent_server from net_dns_record as d inner join domain_list as l on d.domain = l.tld where d.type = 'SOA'
-    ),
-    domain_parent_server_ip as (
-      select * from net_dns_record where domain in (select parent_server from domain_parent_server)
-    ),
-    domain_parent_server_with_ip as (
-      select domain_parent_server.domain,  domain_parent_server.parent_server, host(domain_parent_server_ip.ip) as ip_text from domain_parent_server inner join domain_parent_server_ip on domain_parent_server.parent_server = domain_parent_server_ip.domain where domain_parent_server_ip.type = 'A' order by domain_parent_server.domain
-    ),
-    domain_parent_server_ns_list as (
-      select net_dns_record.domain, domain_parent_server_with_ip.parent_server, net_dns_record.target from net_dns_record inner join domain_parent_server_with_ip on net_dns_record.domain = domain_parent_server_with_ip.domain and net_dns_record.dns_server = domain_parent_server_with_ip.ip_text and net_dns_record.type = 'NS' order by net_dns_record.domain
-    ),
-    ns_ips as (
-      select domain, type, ip from net_dns_record where domain in (select target from domain_parent_server_ns_list) and type = 'A' order by domain
-    )
-    select
-      domain_parent_server_ns_list.domain as "Domain",
-      domain_parent_server_ns_list.parent_server as "Parent Server",
-      domain_parent_server_ns_list.target as "Name Server",
-      ns_ips.ip as "IP Address"
-    from
-      domain_parent_server_ns_list
-      left join ns_ips on domain_parent_server_ns_list.target = ns_ips.domain
-    order by domain_parent_server_ns_list.target;
-  EOQ
-
-  param "domain_name_input" {}
-}
 
 query "dns_ns_record" {
-  sql = <<-EOQ
-    with domain_records as (
-      select * from net_dns_record where domain = $1 and type = 'NS' order by domain
+  sql = <<EOQ
+    with domain_ns_records as (
+      select * from domain_records_for_type($1, 'NS')
     ),
     ns_ips as (
-      select domain, ip, type, target, host(ip) as ip_text from net_dns_record where domain in (select target from domain_records) and type = 'A' order by domain
+      select * from domain_name_server_ips($1)
     )
     select
-      domain_records.target as "Domain",
+      dnr.target as "Domain",
       ns_ips.ip as "IP Address",
-      domain_records.ttl as "TTL",
+      dnr.ttl as "TTL",
       case
         when ns_ips.ip is null then 'Not Responding'
-        when (select count(*) from net_dns_record where domain = $1 and dns_server = ns_ips.ip_text group by domain) is not null then 'Responding'
+        when (
+          select 
+            count(*)
+          from 
+            net_dns_record 
+          where domain = $1 and dns_server = ns_ips.ip_text
+          group by 
+            domain
+         ) is not null then 'Responding'
         else 'Not Responding'
       end as "Status",
       case
         when ns_ips.ip is null then false
-        else (select count(*) from net_dns_record where domain = $1 and dns_server = ns_ips.ip_text and type = 'SOA' group by domain) is not null
+        else (
+          select 
+            count(*)
+          from 
+            net_dns_record
+          where 
+            domain = $1
+            and dns_server = ns_ips.ip_text
+            and type = 'SOA'
+          group by 
+            domain
+        ) is not null
       end as "Authoritative"
     from
-      domain_records
-      left join ns_ips on domain_records.target = ns_ips.domain and ns_ips.type = 'A'
-    where
-      domain_records.type = 'NS'
-    order by domain_records.target;
+      domain_ns_records dnr
+    left join 
+      ns_ips 
+    on 
+      dnr.target = ns_ips.domain and ns_ips.type = 'A'
+    order by 
+      dnr.target;
   EOQ
 
   param "domain_name_input" {}
 }
 
 query "dns_soa_record" {
-  sql = <<-EOQ
+  sql = <<EOQ
     select
       target as "Primary Name Server",
       serial as "Serial Number",
@@ -267,7 +206,7 @@ query "dns_soa_record" {
 }
 
 query "dns_mx_record" {
-  sql = <<-EOQ
+  sql = <<EOQ
     with domain_records as (
       select * from net_dns_record where domain = $1 and type = 'MX'
     ),
@@ -281,7 +220,7 @@ query "dns_mx_record" {
       ns_ips.ttl as "TTL"
     from
       domain_records
-      inner join ns_ips on domain_records.target = ns_ips.domain
+      join ns_ips on domain_records.target = ns_ips.domain
     where
       ns_ips.type = 'A'
       and domain_records.type = 'MX'
@@ -292,39 +231,74 @@ query "dns_mx_record" {
 }
 
 query "dns_parent_report" {
-  sql = <<-EOQ
+  sql = <<EOQ
     with domain_list as (
-      select distinct domain, substring( domain from '^(?:[^/:]*:[^/@]*@)?(?:[^/:.]*\.)+([^:/]+)' ) as tld from net_dns_record where domain = $1
+      select * from domain_list($1)
     ),
-    domain_parent_server as (
-      select l.domain, d.domain as tld, d.target as parent_server from net_dns_record as d inner join domain_list as l on d.domain = l.tld where d.type = 'SOA'
-    ),
-    domain_parent_server_ip as (
-      select * from net_dns_record where domain in (select parent_server from domain_parent_server)
-    ),
-    domain_parent_server_with_ip as (
-      select domain_parent_server.domain, host(domain_parent_server_ip.ip) as ip_text from domain_parent_server inner join domain_parent_server_ip on domain_parent_server.parent_server = domain_parent_server_ip.domain where domain_parent_server_ip.type = 'A' order by domain_parent_server.domain
+    dns_parent_a_record as (
+      select * from dns_parent_a_record($1)
     ),
     domain_parent_server_ns_list as (
-      select net_dns_record.domain, string_agg(net_dns_record.target, ', ') as ns_records from net_dns_record inner join domain_parent_server_with_ip on net_dns_record.domain = domain_parent_server_with_ip.domain and net_dns_record.dns_server = domain_parent_server_with_ip.ip_text and net_dns_record.type = 'NS' group by net_dns_record.domain
+      select 
+        domain, 
+        string_agg(target, ', ') as ns_records 
+      from 
+        domain_parent_server_ns_list($1)
+      group by
+        domain
     ),
     domain_parent_server_ns_info as (
-      select net_dns_record.domain, net_dns_record.target from net_dns_record inner join domain_parent_server_with_ip on net_dns_record.domain = domain_parent_server_with_ip.domain and net_dns_record.dns_server = domain_parent_server_with_ip.ip_text and net_dns_record.type = 'NS' order by net_dns_record.domain
+      select * from domain_parent_server_ns_info($1)
     ),
     ns_ips as (
-      select domain, type, ip from net_dns_record where domain in (select target from domain_parent_server_ns_info) and type = 'A' order by domain
+      select * from domain_name_server_ips($1)
     ),
     ns_with_type_a_record as (
-      select domain_parent_server_ns_info.domain, ns_ips.type, domain_parent_server_ns_info.target, ns_ips.ip from domain_parent_server_ns_info left join ns_ips on domain_parent_server_ns_info.target = ns_ips.domain
+      select 
+        dps_ni.domain, 
+        ns_ips.type, 
+        dps_ni.target, 
+        ns_ips.ip 
+      from 
+        domain_parent_server_ns_info dps_ni
+      left join 
+        ns_ips 
+      on 
+        dps_ni.target = ns_ips.domain
+    ),
+    null_targets as (
+      select 
+        string_agg(target, ', ') as null_targets
+      from 
+        ns_with_type_a_record 
+      join
+        domain_list
+      using (domain)
+      where 
+        type is null
     )
     select
       'Name servers listed at parent' as "Recommendation",
       case
-        when (select ns_records from domain_parent_server_ns_list where domain = domain_list.domain) is not null then '✅'
+        when (
+          select 
+            ns_records 
+          from 
+            domain_parent_server_ns_list 
+          where 
+            domain = domain_list.domain
+          ) is not null then '✅'
         else '❌'
       end as "Status",
       case
-        when (select ns_records from domain_parent_server_ns_list where domain = domain_list.domain) is not null then 'Parent server has name server information.'
+        when (
+          select 
+            ns_records 
+          from 
+            domain_parent_server_ns_list 
+          where 
+            domain = domain_list.domain
+         ) is not null then 'Parent server has name server information.'
         else 'Parent server do not have information for name servers.'
       end
         || ' It is highly recommended that the parent server should have information for all your name server, so that if anyone want your domain information and does not know DNS server can ask parent server for information.' as "Result"
@@ -334,11 +308,26 @@ query "dns_parent_report" {
     select
       'Every name server listed at parent must have A records' as "Recommendation",
       case
-        when (select target from ns_with_type_a_record where domain = domain_list.domain and type is null) is not null then '❌'
+        when (
+          select 
+            target 
+          from 
+            ns_with_type_a_record 
+          where 
+            domain = domain_list.domain 
+            and type is null
+        ) is not null then '❌'
         else '✅'
       end as "Status",
       case
-        when (select target from ns_with_type_a_record where domain = domain_list.domain and type is null) is not null then 'Some name servers [' || (select string_agg(target, ', ') from ns_with_type_a_record where domain = domain_list.domain and type is null) || '] do not have A records.'
+        when (
+          select 
+            target
+          from 
+            ns_with_type_a_record
+          where
+            domain = domain_list.domain and type is null
+            ) is not null then 'Some name servers [' || (select * from null_targets) || '] do not have A records.'
         else 'Every name server listed at parent has A records.'
       end
         || ' It is highly recommended that every name server listed at parent should have A record.' as "Result"
@@ -350,62 +339,84 @@ query "dns_parent_report" {
 }
 
 query "dns_ns_report" {
-  sql = <<-EOQ
+  sql = <<EOQ
     with domain_list as (
-      select distinct domain, substring( domain from '^(?:[^/:]*:[^/@]*@)?(?:[^/:.]*\.)+([^:/]+)' ) as tld from net_dns_record where domain = $1
-    ),
-    domain_parent_server as (
-      select l.domain, d.domain as tld, d.target as parent_server from net_dns_record as d inner join domain_list as l on d.domain = l.tld where d.type = 'SOA' order by l.domain
-    ),
-    domain_parent_server_ip as (
-      select * from net_dns_record where domain in (select parent_server from domain_parent_server) order by domain
+      select * from domain_list($1)
     ),
     domain_parent_server_with_ip as (
-      select domain_parent_server.domain, host(domain_parent_server_ip.ip) as ip_text from domain_parent_server inner join domain_parent_server_ip on domain_parent_server.parent_server = domain_parent_server_ip.domain where domain_parent_server_ip.type = 'A' order by domain_parent_server.domain
+      select * from domain_parent_server_with_ip($1)
     ),
     domain_parent_server_ns_list as (
-      select net_dns_record.domain, net_dns_record.target from net_dns_record inner join domain_parent_server_with_ip on net_dns_record.domain = domain_parent_server_with_ip.domain and net_dns_record.dns_server = domain_parent_server_with_ip.ip_text and net_dns_record.type = 'NS' order by net_dns_record.domain
+      select * from domain_parent_server_ns_list($1)
     ),
     parent_server_ns_count_by_domain as (
-      select net_dns_record.domain, count(net_dns_record.target) from net_dns_record inner join domain_parent_server_with_ip on net_dns_record.domain = domain_parent_server_with_ip.domain and net_dns_record.dns_server = domain_parent_server_with_ip.ip_text and net_dns_record.type = 'NS' group by net_dns_record.domain order by net_dns_record.domain
-    ),
-    domain_ns_count as (
-      select count(*) from net_dns_record where domain = $1 and type = 'NS' group by domain
+      select 
+        ndr.domain, 
+        count(ndr.target) 
+      from 
+        net_dns_record ndr
+      join 
+        domain_parent_server_with_ip dps_ip
+      on 
+        ndr.domain = dps_ip.domain 
+        and ndr.dns_server = dps_ip.ip_text 
+        and ndr.type = 'NS' group by ndr.domain 
+      order by
+        ndr.domain
     ),
     domain_ns_records as (
-      select * from net_dns_record where domain in ($1) and type = 'NS'
+      select * from domain_records_for_type($1, 'NS')
     ),
-    ns_ips as (
-      select domain, type, ip, host(ip) as ip_text from net_dns_record where domain in (select target from domain_ns_records) and type = 'A'
+    domain_ns_count as (
+      select count(*) from domain_ns_records
+    ),
+    domain_name_server_ips as (
+      select * from domain_name_server_ips($1)
     ),
     ns_with_ip as (
-      select domain_ns_records.domain, host(ns_ips.ip) as ip_text from domain_ns_records inner join ns_ips on domain_ns_records.target = ns_ips.domain where ns_ips.type = 'A' order by domain_ns_records.domain
+      select 
+        dnr.domain, 
+        host(ns_ips.ip) as ip_text
+      from 
+        domain_ns_records dnr
+      join 
+        domain_name_server_ips ns_ips 
+      on 
+        dnr.target = ns_ips.domain
+      where 
+        ns_ips.type = 'A' order by dnr.domain
     ),
     ns_with_name_server_record as (
       select
-        domain_parent_server_ns_list.domain,
-        domain_parent_server_ns_list.target,
-        (select count as parent_server_ns_record_count from parent_server_ns_count_by_domain where domain = domain_parent_server_ns_list.domain),
-        (select count(*) as name_server_record_count from net_dns_record where domain = domain_parent_server_ns_list.domain and dns_server = ns_ips.ip_text and type = 'NS' group by domain)
+        dps_nl.domain,
+        dps_nl.target,
+        (select count as parent_server_ns_record_count from parent_server_ns_count_by_domain where domain = dps_nl.domain),
+        (select count(*) as name_server_record_count from net_dns_record where domain = dps_nl.domain and dns_server = ns_ips.ip_text and type = 'NS' group by domain)
       from
-        domain_parent_server_ns_list
-        left join ns_ips on domain_parent_server_ns_list.target = ns_ips.domain
+        domain_parent_server_ns_list dps_nl
+      left join 
+        domain_name_server_ips ns_ips 
+      on 
+        dps_nl.target = ns_ips.domain
       where
         ns_ips.ip is not null
-      order by domain_parent_server_ns_list.domain
+      order by dps_nl.domain
     ),
     ns_with_different_ns_count as (
       select distinct domain from ns_with_name_server_record where parent_server_ns_record_count <> name_server_record_count
     ),
     ns_record_with_ip as (
       select
-        domain_ns_records.domain,
-        domain_ns_records.target,
+        dnr.domain,
+        dnr.target,
         ns_ips.ip,
-        (ns_ips.ip << '10.0.0.0/8'::inet or ns_ips.ip << '100.64.0.0/10'::inet or ns_ips.ip << '172.16.0.0/12'::inet or ns_ips.ip << '192.0.0.0/24'::inet or ns_ips.ip << '192.168.0.0/16'::inet or ns_ips.ip << '198.18.0.0/15'::inet) as is_private
+        ip_is_private(ns_ips.ip) as is_private
       from
-        domain_ns_records
-        inner join ns_ips on domain_ns_records.target = ns_ips.domain
+        domain_ns_records dnr
+      join 
+        domain_name_server_ips ns_ips 
+      on 
+        dnr.target = ns_ips.domain
     ),
     ns_record_with_private_ip as (
       select distinct domain from ns_record_with_ip where is_private
@@ -419,31 +430,20 @@ query "dns_ns_report" {
       where
         domain in ($1)
         and type = 'NS'
-        and not target ~ '^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}\.?$'
+        and not target ~ (select valid_nameserver_target())
       group by domain
     ),
-    check_ips as (
-      select
-        distinct array_to_string(array_remove(string_to_array(text(ns_ips.ip), '.'), split_part(text(ns_ips.ip), '.', 4)), '.'),
-        domain_ns_records.domain as domain
-      from
-        domain_ns_records
-        inner join ns_ips on domain_ns_records.target = ns_ips.domain
-      where
-        ns_ips.type = 'A'
-        and domain_ns_records.type = 'NS'
+    name_server_subnets as (
+      select * from name_server_subnets('jonudell.info')
     ),
     dns_record_count as (
-      select domain, count(*) from net_dns_record where domain in (select domain from domain_list) group by domain
-    ),
-    dns_cname_count as (
-      select domain, count(*) from net_dns_record where domain in (select domain from domain_list) and type = 'CNAME' group by domain
+      select * from dns_record_count($1)
     ),
     count_stats as (
       select
         domain,
-        (select count from dns_record_count where domain = domain_list.domain) as all_record_count,
-        (select count from dns_cname_count where domain = domain_list.domain) as cname_record_count
+        (select count(*) from domain_records($1)) as all_record_count,
+        (select count(*) from domain_records_for_type($1, 'CNAME')) as cname_record_count
       from
         domain_list
     )
@@ -469,8 +469,9 @@ query "dns_ns_report" {
       end
         || ' The names can contain only alphabetical characters (A-Z), numeric characters (0-9), the minus sign (-), and the period (.). Period characters are allowed only when they are used to delimit the components of domain style names.' as "Result"
     from
-      domain_list as d
-      left join invalid_ns_count as r on d.domain = r.domain
+      domain_list d
+    left join 
+      invalid_ns_count r on d.domain = r.domain
     UNION
     select
       'Missing name servers reported by parent' as "Recommendation",
@@ -485,7 +486,10 @@ query "dns_ns_report" {
         || ' Unmatched NS records can cause delays when resolving domain records, as it tries to contact a name server that is either non-existent or non-authoritative.' as "Result"
     from
       domain_list
-      left join ns_with_different_ns_count on domain_list.domain = ns_with_different_ns_count.domain
+    left join 
+      ns_with_different_ns_count 
+    on 
+      domain_list.domain = ns_with_different_ns_count.domain
     UNION
     select
       'No CNAME record if an NS (or any other) record is present' as "Recommendation",
@@ -515,7 +519,7 @@ query "dns_ns_report" {
       end
         || ' As per RFC2182 section 3.1, it is recommended that the secondary servers must be placed at both topologically and geographically dispersed locations on the Internet, to minimize the likelihood of a single failure disabling all of them.' as "Result"
     from
-      check_ips
+      name_server_subnets
     group by domain
     UNION
     select
@@ -545,7 +549,7 @@ query "dns_ns_report" {
       end
         || ' As per RFC2182 section 3.1, it is recommended that the secondary servers must be placed at both topologically and geographically dispersed locations on the Internet, to minimize the likelihood of a single failure disabling all of them.' as "Result"
     from
-      check_ips
+      name_server_subnets
     group by domain
   EOQ
 
@@ -553,12 +557,12 @@ query "dns_ns_report" {
 }
 
 query "dns_soa_report" {
-  sql = <<-EOQ
+  sql = <<EOQ
     with domain_list as (
-      select distinct domain, substring( domain from '^(?:[^/:]*:[^/@]*@)?(?:[^/:.]*\.)+([^:/]+)' ) as tld from net_dns_record where domain = $1 order by domain
+      select * from domain_list($1)
     ),
     domain_parent_server as (
-      select l.domain, d.domain as tld, d.target as parent_server from net_dns_record as d inner join domain_list as l on d.domain = l.tld where d.type = 'SOA'
+      select * from domain_parent_server($1)
     ),
     domain_parent_server_ip as (
       select * from net_dns_record where domain in (select parent_server from domain_parent_server)
@@ -699,7 +703,7 @@ query "dns_soa_report" {
 }
 
 query "dns_mx_report" {
-  sql = <<-EOQ
+  sql = <<EOQ
     with domain_list as (
       select distinct domain from net_dns_record where domain = $1
     ),

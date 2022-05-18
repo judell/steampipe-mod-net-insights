@@ -4,13 +4,31 @@ variable "dns_domain_names" {
   default     = [ "github.com", "microsoft.com" ]
 }
 
+variable "domain_name" {
+  type        = string
+  description = "A domain name to run DNS checks for."
+  default     = "jonudell.info"
+}
+
 locals {
   dns_best_practices_common_tags = merge(local.net_insights_common_tags, {
     service = "Net/DNS"
   })
 }
 
-benchmark "dns_best_practices" {
+dashboard "dns_best_practices" {
+
+  title = "DNS Best Practices"
+
+  input "domain_name_input" {
+    title       = "Enter a domain:"
+    width       = 4
+    type        = "text"
+    placeholder = "example.com"
+  }
+
+
+  benchmark  {
   title         = "DNS Best Practices"
   description   = "Best practices for your DNS records."
   documentation = file("./controls/docs/dns_overview.md")
@@ -21,10 +39,8 @@ benchmark "dns_best_practices" {
     benchmark.dns_mx_best_practices,
     benchmark.dns_www_best_practices
   ]
+}
 
-  tags = merge(local.dns_best_practices_common_tags, {
-    type = "Benchmark"
-  })
 }
 
 benchmark "dns_parent_best_practices" {
@@ -37,9 +53,6 @@ benchmark "dns_parent_best_practices" {
     control.dns_parent_ns_all_with_type_a_record
   ]
 
-  tags = merge(local.dns_best_practices_common_tags, {
-    type = "Benchmark"
-  })
 }
 
 control "dns_parent_records_found" {
@@ -60,14 +73,12 @@ control "dns_parent_records_found" {
     from
       net_dns_record
     where
-      domain in (select jsonb_array_elements_text(to_jsonb($1::text[])))
+      domain = $1
     group by domain;
   EOT
-
-  param "dns_domain_names" {
-    description = "DNS domain names."
-    default     = var.dns_domain_names
-  }
+  args = [
+    var.domain_name
+  ]
 }
 
 control "dns_parent_ns_listed_at_parent" {
@@ -76,38 +87,48 @@ control "dns_parent_ns_listed_at_parent" {
 
   sql = <<-EOT
     with domain_list as (
-      select distinct domain, substring( domain from '^(?:[^/:]*:[^/@]*@)?(?:[^/:.]*\.)+([^:/]+)' ) as tld from net_dns_record where domain in (select jsonb_array_elements_text(to_jsonb($1::text[])))
+      select * from domain_list($1)
     ),
-    domain_parent_server as (
-      select l.domain, d.domain as tld, d.target as parent_server from net_dns_record as d inner join domain_list as l on d.domain = l.tld where d.type = 'SOA'
-    ),
-    domain_parent_server_ip as (
-      select domain, type, ip from net_dns_record where domain in (select parent_server from domain_parent_server)
-    ),
-    domain_parent_server_with_ip as (
-      select domain_parent_server.domain, host(domain_parent_server_ip.ip) as ip_text from domain_parent_server inner join domain_parent_server_ip on domain_parent_server.parent_server = domain_parent_server_ip.domain where domain_parent_server_ip.type = 'A' order by domain_parent_server.domain
+    dns_parent_a_record as (
+      select * from dns_parent_a_record($1)
     ),
     domain_parent_server_ns_list as (
-      select net_dns_record.domain, string_agg(net_dns_record.target, ', ') as ns_records from net_dns_record inner join domain_parent_server_with_ip on net_dns_record.domain = domain_parent_server_with_ip.domain and net_dns_record.dns_server = domain_parent_server_with_ip.ip_text and net_dns_record.type = 'NS' group by net_dns_record.domain
+      select
+        string_agg(target, ', ') as ns_records
+      from 
+        domain_parent_server_ns_list($1)
     )
     select
       domain as resource,
       case
-        when (select ns_records from domain_parent_server_ns_list where domain = domain_list.domain) is not null then 'ok'
+        when (
+          select 
+            ns_records 
+          from 
+            domain_parent_server_ns_list
+          where 
+            domain = domain_list.domain
+        ) is not null then 'ok'
         else 'alarm'
       end as status,
       case
-        when (select ns_records from domain_parent_server_ns_list where domain = domain_list.domain) is not null then domain || ' parent server has listed name servers.'
+        when (
+          select
+            ns_records 
+          from 
+            domain_parent_server_ns_list
+          where 
+            domain = domain_list.domain
+        ) is not null then domain || ' parent server has listed name servers.'
         else domain || ' parent server don''t have information for name servers.'
       end as reason
     from
       domain_list;
   EOT
 
-  param "dns_domain_names" {
-    description = "DNS domain names."
-    default     = var.dns_domain_names
-  }
+  args = [
+    var.domain_name
+  ]
 }
 
 control "dns_parent_ns_all_with_type_a_record" {
@@ -116,44 +137,55 @@ control "dns_parent_ns_all_with_type_a_record" {
 
   sql = <<-EOT
     with domain_list as (
-      select distinct domain, substring( domain from '^(?:[^/:]*:[^/@]*@)?(?:[^/:.]*\.)+([^:/]+)' ) as tld from net_dns_record where domain in (select jsonb_array_elements_text(to_jsonb($1::text[])))
-    ),
-    domain_parent_server as (
-      select l.domain, d.domain as tld, d.target as parent_server from net_dns_record as d inner join domain_list as l on d.domain = l.tld where d.type = 'SOA'
-    ),
-    domain_parent_server_ip as (
-      select * from net_dns_record where domain in (select parent_server from domain_parent_server)
-    ),
-    domain_parent_server_with_ip as (
-      select domain_parent_server.domain, host(domain_parent_server_ip.ip) as ip_text from domain_parent_server inner join domain_parent_server_ip on domain_parent_server.parent_server = domain_parent_server_ip.domain where domain_parent_server_ip.type = 'A' order by domain_parent_server.domain
+      select * from domain_list($1)
     ),
     domain_parent_server_ns_list as (
-      select net_dns_record.domain, net_dns_record.target from net_dns_record inner join domain_parent_server_with_ip on net_dns_record.domain = domain_parent_server_with_ip.domain and net_dns_record.dns_server = domain_parent_server_with_ip.ip_text and net_dns_record.type = 'NS' order by net_dns_record.domain
+      select * from domain_parent_server_ns_list($1)
     ),
     ns_ips as (
-      select domain, type, ip from net_dns_record where domain in (select target from domain_parent_server_ns_list) and type = 'A' order by domain
+      select * from domain_name_server_ips($1)
     ),
     ns_with_type_a_record as (
-      select domain_parent_server_ns_list.domain, ns_ips.type, domain_parent_server_ns_list.target, ns_ips.ip from domain_parent_server_ns_list left join ns_ips on domain_parent_server_ns_list.target = ns_ips.domain
+      select 
+        domain_parent_server_ns_list.domain, 
+        ns_ips.type, 
+        domain_parent_server_ns_list.target, 
+        ns_ips.ip from domain_parent_server_ns_list 
+      left join 
+        ns_ips 
+      on 
+        domain_parent_server_ns_list.target = ns_ips.domain
     )
     select
       domain as resource,
       case
-        when (select target from ns_with_type_a_record where domain = domain_list.domain and type is null) is not null then 'alarm'
+        when (
+          select 
+            target 
+          from 
+            ns_with_type_a_record
+          where
+            domain = domain_list.domain and type is null
+        ) is not null then 'alarm'
         else 'ok'
       end as status,
       case
-        when (select target from ns_with_type_a_record where domain = domain_list.domain and type is null) is not null then domain || ' name servers without A records: [' || (select string_agg(target, ', ') from ns_with_type_a_record where domain = domain_list.domain and type is null) || '].'
+        when (
+          select 
+            target
+          from 
+            ns_with_type_a_record
+          where
+            domain = domain_list.domain and type is null
+         ) is not null then domain || ' name servers without A records: [' || (select string_agg(target, ', ') from ns_with_type_a_record where domain = domain_list.domain and type is null) || '].'
         else domain || ' name servers listed at parent server have A records.'
       end as reason
     from
       domain_list;
   EOT
-
-  param "dns_domain_names" {
-    description = "DNS domain names."
-    default     = var.dns_domain_names
-  }
+  args = [
+    var.domain_name
+  ]
 }
 
 benchmark "dns_ns_best_practices" {
@@ -173,9 +205,6 @@ benchmark "dns_ns_best_practices" {
     control.dns_ns_different_autonomous_systems
   ]
 
-  tags = merge(local.dns_best_practices_common_tags, {
-    type = "Benchmark"
-  })
 }
 
 control "dns_ns_name_valid" {
@@ -183,20 +212,20 @@ control "dns_ns_name_valid" {
   description = "It is recommended that all name servers should have a valid name format. DNS names can contain only alphabetical characters (A-Z), numeric characters (0-9), the minus sign (-), and the period (.). Period characters are allowed only when they are used to delimit the components of domain style names."
 
   sql = <<-EOT
-    with invalid_ns_count as (
+    with domain_list as (
+      select * from domain_list($1)
+    ),
+    invalid_ns_count as (
       select
         domain,
         count(*)
       from
         net_dns_record
       where
-        domain in (select jsonb_array_elements_text(to_jsonb($1::text[])))
+        domain = $1
         and type = 'NS'
         and not target ~ '^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}\.?$'
       group by domain
-    ),
-    domain_list as (
-      select distinct domain from net_dns_record where domain in (select jsonb_array_elements_text(to_jsonb($1::text[])))
     )
     select
       d.domain as resource,
@@ -212,11 +241,9 @@ control "dns_ns_name_valid" {
       domain_list as d
       left join invalid_ns_count as r on d.domain = r.domain;
   EOT
-
-  param "dns_domain_names" {
-    description = "DNS domain names."
-    default     = var.dns_domain_names
-  }
+  args = [
+    var.domain_name
+  ]
 }
 
 control "dns_ns_at_least_two" {
@@ -234,17 +261,15 @@ control "dns_ns_at_least_two" {
     from
       net_dns_record
     where
-      domain in (select jsonb_array_elements_text(to_jsonb($1::text[])))
+      domain = $1
       and type = 'NS'
     group by
-      domain,
-      type;
+      domain, type;
   EOT
 
-  param "dns_domain_names" {
-    description = "DNS domain names."
-    default     = var.dns_domain_names
-  }
+  args = [
+    var.domain_name
+  ]
 }
 
 control "dns_ns_authoritative" {
@@ -253,13 +278,28 @@ control "dns_ns_authoritative" {
 
   sql = <<-EOT
     with domain_list as (
-      select distinct domain from net_dns_record where domain in (select jsonb_array_elements_text(to_jsonb($1::text[]))) order by domain
+      select * from domain_list($1)
     ),
     domain_ns_records as (
-      select domain, target from net_dns_record where domain in (select domain from domain_list order by domain) and type = 'NS' order by domain
+      select 
+        domain, 
+        target
+      from 
+        net_dns_record 
+      where
+        domain = $1 and type = 'NS'
+      order by
+        domain
     ),
     ns_ips as (
-      select domain, ip, target, host(ip) as ip_text from net_dns_record where domain in (select target from domain_ns_records) and type = 'A' order by domain
+      select 
+        domain, 
+        ip, 
+        target, 
+        host(ip) as ip_text 
+      from 
+        net_dns_record 
+      where domain in (select target from domain_ns_records) and type = 'A' order by domain
     ),
     ns_with_authoritative_stats as (
       select
@@ -267,15 +307,34 @@ control "dns_ns_authoritative" {
       domain_ns_records.target,
       case
         when ns_ips.ip is null then false
-        else (select count(*) from net_dns_record where domain = domain_ns_records.domain and dns_server = ns_ips.ip_text and type = 'SOA' group by domain) is not null 
+        else (
+          select 
+            count(*) 
+          from 
+            net_dns_record 
+          where 
+            domain = domain_ns_records.domain and dns_server = ns_ips.ip_text and type = 'SOA'
+          group by domain
+        ) is not null 
       end as is_authoritative
     from
       domain_ns_records
-      left join ns_ips on domain_ns_records.target = ns_ips.domain and ns_ips.ip is not null
-    order by domain_ns_records.target
+    left join 
+      ns_ips 
+    on 
+      domain_ns_records.target = ns_ips.domain and ns_ips.ip is not null
+    order by 
+      domain_ns_records.target
     ),
     ns_non_authoritative as (
-      select distinct domain from ns_with_authoritative_stats where not is_authoritative order by domain
+      select distinct 
+        domain 
+      from 
+        ns_with_authoritative_stats 
+      where 
+        not is_authoritative 
+      order by
+        domain
     )
     select
       domain_list.domain as resource,
@@ -289,13 +348,14 @@ control "dns_ns_authoritative" {
       end as reason
     from
       domain_list
-      left join ns_non_authoritative on domain_list.domain = ns_non_authoritative.domain;
+    left join 
+      ns_non_authoritative
+    on 
+      domain_list.domain = ns_non_authoritative.domain;
   EOT
-
-  param "dns_domain_names" {
-    description = "DNS domain names."
-    default     = var.dns_domain_names
-  }
+  args = [
+    var.domain_name
+  ]
 }
 
 control "dns_ns_responded" {
@@ -304,7 +364,7 @@ control "dns_ns_responded" {
 
   sql = <<-EOT
     with domain_ns_records as (
-      select domain, target from net_dns_record where domain in (select jsonb_array_elements_text(to_jsonb($1::text[]))) and type = 'NS'
+      select domain, target from net_dns_record where domain = $1 and type = 'NS'
     ),
     ns_ips as (
       select domain, ip from net_dns_record where domain in (select target from domain_ns_records) and type = 'A'
@@ -344,11 +404,12 @@ control "dns_ns_responded" {
     group by nc.domain, nic.count, nc.count;
   EOT
 
-  param "dns_domain_names" {
-    description = "DNS domain names."
-    default     = var.dns_domain_names
-  }
+  args = [
+    var.domain_name
+  ]
 }
+
+// resume here
 
 control "dns_ns_local_matches_parent_ns_list" {
   title       = "Local DNS name server list should match parent name server list"
@@ -356,41 +417,87 @@ control "dns_ns_local_matches_parent_ns_list" {
 
   sql = <<-EOT
     with domain_list as (
-      select distinct domain, substring( domain from '^(?:[^/:]*:[^/@]*@)?(?:[^/:.]*\.)+([^:/]+)' ) as tld from net_dns_record where domain in (select jsonb_array_elements_text(to_jsonb($1::text[]))) order by domain
+      select * from domain_list($1)
     ),
-    domain_parent_server as (
-      select l.domain, d.domain as tld, d.target as parent_server from net_dns_record as d inner join domain_list as l on d.domain = l.tld where d.type = 'SOA' order by l.domain
-    ),
-    domain_parent_server_ip as (
-      select * from net_dns_record where domain in (select parent_server from domain_parent_server) order by domain
-    ),
-    domain_parent_server_with_ip as (
-      select domain_parent_server.domain, host(domain_parent_server_ip.ip) as ip_text from domain_parent_server inner join domain_parent_server_ip on domain_parent_server.parent_server = domain_parent_server_ip.domain where domain_parent_server_ip.type = 'A' order by domain_parent_server.domain
+    dns_parent_a_record as (
+      select * from dns_parent_a_record($1)
     ),
     domain_parent_server_ns_list as (
-      select net_dns_record.domain, net_dns_record.target from net_dns_record inner join domain_parent_server_with_ip on net_dns_record.domain = domain_parent_server_with_ip.domain and net_dns_record.dns_server = domain_parent_server_with_ip.ip_text and net_dns_record.type = 'NS' order by net_dns_record.domain
+      select * from domain_parent_server_ns_list($1)
     ),
     parent_server_ns_count_by_domain as (
-      select net_dns_record.domain, count(net_dns_record.target) from net_dns_record inner join domain_parent_server_with_ip on net_dns_record.domain = domain_parent_server_with_ip.domain and net_dns_record.dns_server = domain_parent_server_with_ip.ip_text and net_dns_record.type = 'NS' group by net_dns_record.domain order by net_dns_record.domain
+      select 
+        ndr.domain,
+        count(ndr.target) 
+      from 
+        net_dns_record ndr
+      join 
+        dns_parent_a_record dpr
+      on 
+        ndr.domain = dpr.domain 
+        and ndr.dns_server = host(dpr.parent_ip)
+        and ndr.type = 'NS'
+      group by 
+        ndr.domain order by ndr.domain
     ),
     ns_ips as (
-      select domain, type, ip, host(ip) as ip_text from net_dns_record where domain in (select target from domain_parent_server_ns_list) and type = 'A' order by domain
+      select 
+        domain, 
+        type, 
+        ip, 
+        host(ip) as ip_text 
+      from 
+        net_dns_record 
+      where 
+        domain = $1 and type = 'A'
+      order by
+       domain
     ),
     ns_with_name_server_record as (
       select
-        domain_parent_server_ns_list.domain,
-        domain_parent_server_ns_list.target,
-        (select count as parent_server_ns_record_count from parent_server_ns_count_by_domain where domain = domain_parent_server_ns_list.domain),
-        (select count(*) as name_server_record_count from net_dns_record where domain = domain_parent_server_ns_list.domain and dns_server = ns_ips.ip_text and type = 'NS' group by domain)
+        dps_nl.domain,
+        dps_nl.target,
+        (
+          select 
+            count as parent_server_ns_record_count 
+          from 
+            parent_server_ns_count_by_domain 
+          where 
+            domain = dps_nl.domain
+        ),
+        (
+          select 
+            count(*) as name_server_record_count 
+          from 
+            net_dns_record 
+          where
+            domain = dps_nl.domain and dns_server = ns_ips.ip_text and type = 'NS'
+          group by domain
+        )
       from
-        domain_parent_server_ns_list
-        left join ns_ips on domain_parent_server_ns_list.target = ns_ips.domain
+        domain_parent_server_ns_list dps_nl
+      left join 
+        ns_ips on dps_nl.target = ns_ips.domain
       where
         ns_ips.ip is not null
-      order by domain_parent_server_ns_list.domain
+      order by 
+        dps_nl.domain
     ),
     ns_with_different_ns_count as (
-      select distinct domain from ns_with_name_server_record where parent_server_ns_record_count <> name_server_record_count
+      select distinct 
+        domain 
+      from 
+        ns_with_name_server_record 
+      where 
+        parent_server_ns_record_count <> name_server_record_count
+    ),
+    targets as (
+      select 
+        string_agg(target, ', ') as targets
+      from 
+        ns_with_name_server_record 
+      where 
+        parent_server_ns_record_count <> name_server_record_count
     )
     select
       domain_list.domain as resource,
@@ -399,18 +506,22 @@ control "dns_ns_local_matches_parent_ns_list" {
         else 'alarm'
       end as status,
       case
-        when ns_with_different_ns_count.domain is null then domain_list.domain || ' name server records returned by parent server match local list.'
-        else domain_list.domain || ' parent name server records do not match local records: [' || (select string_agg(target, ', ') from ns_with_name_server_record where parent_server_ns_record_count <> name_server_record_count) || '].'
+        when ns_with_different_ns_count.domain is null 
+          then domain_list.domain || ' name server records returned by parent server match local list.'
+        else 
+          domain_list.domain || ' parent name server records do not match local records: [' || (select targets from targets) || '].'
       end as reason
     from
       domain_list
-      left join ns_with_different_ns_count on domain_list.domain = ns_with_different_ns_count.domain;
+    left join 
+      ns_with_different_ns_count 
+    on 
+      domain_list.domain = ns_with_different_ns_count.domain;
   EOT
 
-  param "dns_domain_names" {
-    description = "DNS domain names."
-    default     = var.dns_domain_names
-  }
+  args = [
+    var.domain_name
+  ]
 }
 
 control "dns_ns_dns_no_cname_with_other_record" {
@@ -419,10 +530,10 @@ control "dns_ns_dns_no_cname_with_other_record" {
 
   sql = <<-EOT
     with domain_list as (
-      select distinct domain from net_dns_record where domain in (select jsonb_array_elements_text(to_jsonb($1::text[]))) order by domain
+      select * from domain_list($1)
     ),
     dns_record_count as (
-      select domain, count(*) from net_dns_record where domain in (select domain from domain_list) group by domain
+      select * from dns_record_count($1)
     ),
     dns_cname_count as (
       select domain, count(*) from net_dns_record where domain in (select domain from domain_list) and type = 'CNAME' group by domain
@@ -693,9 +804,6 @@ benchmark "dns_soa_best_practices" {
     control.dns_soa_minimum_value_check
   ]
 
-  tags = merge(local.dns_best_practices_common_tags, {
-    type = "Benchmark"
-  })
 }
 
 control "dns_soa_ns_same_serial" {
@@ -944,9 +1052,6 @@ benchmark "dns_mx_best_practices" {
     control.dns_mx_reverse_a_record
   ]
 
-  tags = merge(local.dns_best_practices_common_tags, {
-    type = "Benchmark"
-  })
 }
 
 control "dns_mx_valid_hostname" {
@@ -1310,9 +1415,6 @@ benchmark "dns_www_best_practices" {
     control.dns_www_all_ip_public
   ]
 
-  tags = merge(local.dns_best_practices_common_tags, {
-    type = "Benchmark"
-  })
 }
 
 control "dns_www_all_ip_public" {
@@ -1369,3 +1471,4 @@ control "dns_www_all_ip_public" {
     default     = var.dns_domain_names
   }
 }
+
