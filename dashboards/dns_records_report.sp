@@ -514,7 +514,7 @@ query "dns_ns_report" {
         else '✅'
       end as "Status",
       case
-        when count(*) = 1 then 'Name servers are on the same subnet.'
+        when count(*) = 1 then 'Name servers are on the same subnet'
         else 'Name servers appear to be dispersed.'
       end
         || ' As per RFC2182 section 3.1, it is recommended that the secondary servers must be placed at both topologically and geographically dispersed locations on the Internet, to minimize the likelihood of a single failure disabling all of them.' as "Result"

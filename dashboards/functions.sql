@@ -252,7 +252,7 @@ create or replace function subnet_for_ip(_ip text) returns text as $$
   select regexp_replace(_ip, '\.\d+$', '');
 $$ language sql;
 
-create or replace function name_server_subnets(_domain text) returns table (domain text, subnet text) as $$
+create or replace function name_server_subnets(_domain text) returns table (name_server_ip text, subnet text) as $$
   with domain_ns_records as (
     select * from domain_records_for_type(_domain, 'NS')
   ),
@@ -270,4 +270,8 @@ create or replace function name_server_subnets(_domain text) returns table (doma
     dnr.target = ns_ips.domain
   where
     ns_ips.type = 'A' and dnr.type = 'NS'
+$$ language sql;
+
+create or replace function count_of_name_server_subnets(_domain text) returns bigint as $$
+  select count(*) from name_server_subnets(_domain)
 $$ language sql;

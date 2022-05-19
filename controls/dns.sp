@@ -7,7 +7,7 @@ variable "dns_domain_names" {
 variable "domain_name" {
   type        = string
   description = "A domain name to run DNS checks for."
-  default     = "jonudell.info"
+  default     = "whitehouse.gov"
 }
 
 locals {
