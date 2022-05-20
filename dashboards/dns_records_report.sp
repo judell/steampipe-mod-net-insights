@@ -520,7 +520,6 @@ query "dns_ns_report" {
         || ' As per RFC2182 section 3.1, it is recommended that the secondary servers must be placed at both topologically and geographically dispersed locations on the Internet, to minimize the likelihood of a single failure disabling all of them.' as "Result"
     from
       name_server_subnets
-    group by domain
     UNION
     select
       'IPs of name servers are public' as "Recommendation",
@@ -550,7 +549,6 @@ query "dns_ns_report" {
         || ' As per RFC2182 section 3.1, it is recommended that the secondary servers must be placed at both topologically and geographically dispersed locations on the Internet, to minimize the likelihood of a single failure disabling all of them.' as "Result"
     from
       name_server_subnets
-    group by domain
   EOQ
 
   param "domain_name_input" {}
