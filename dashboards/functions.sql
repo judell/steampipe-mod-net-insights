@@ -24,6 +24,12 @@ create type name_server_ip as (
   ip_text text
 );
 
+create type control_output as (
+  resource text,
+  status text,
+  reason text
+);
+
 create or replace function domain_records(_domain text) returns setof net_dns_record as $$
   select * from net_dns_record where domain = _domain;
 $$ language sql;
@@ -276,29 +282,21 @@ create or replace function count_of_name_server_subnets(_domain text) returns bi
   select count(*) from name_server_subnets(_domain)
 $$ language sql;
 
-create or replace function test_name_server_subnets(_domain text, _expected int) returns table (
-  resource text,
-  status text,
-  reason text
-) as $$
-  sql = f"""
+create or replace function test_name_server_subnets(_domain text, _expected int) 
+  returns control_output as $$
     select
       'test_name_server_subnets' as resource,
       case
-          when count_of_name_server_subnets('{_domain}') != {_expected} then 'alarm'
+          when count_of_name_server_subnets(_domain) != _expected then 'alarm'
           else 'ok'
       end as status,
       case
-          when count_of_name_server_subnets('{_domain}') != {_expected} then 'Expected {_expected} for '
-          else 'Found ' || count_of_name_server_subnets('{_domain}') || ' for '
+          when count_of_name_server_subnets(_domain) != _expected then 'Expected ' || _expected || ' for '
+          else 'Found ' || count_of_name_server_subnets(_domain) || ' for '
       end 
-      || '{_domain}' as reason
+      || _domain as reason
     from
       net_dns_record
     where
-      domain = '{_domain}'
-    group by
-      domain
-    """
-  return plpy.execute(sql)
-$$ language plpython3u;
+      domain = _domain;
+$$ language sql;
