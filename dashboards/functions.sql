@@ -275,3 +275,30 @@ $$ language sql;
 create or replace function count_of_name_server_subnets(_domain text) returns bigint as $$
   select count(*) from name_server_subnets(_domain)
 $$ language sql;
+
+create or replace function test_name_server_subnets(_domain text, _expected int) returns table (
+  resource text,
+  status text,
+  reason text
+) as $$
+  sql = f"""
+    select
+      'test_name_server_subnets' as resource,
+      case
+          when count_of_name_server_subnets('{_domain}') != {_expected} then 'alarm'
+          else 'ok'
+      end as status,
+      case
+          when count_of_name_server_subnets('{_domain}') != {_expected} then 'Expected {_expected} for '
+          else 'Found ' || count_of_name_server_subnets('{_domain}') || ' for '
+      end 
+      || '{_domain}' as reason
+    from
+      net_dns_record
+    where
+      domain = '{_domain}'
+    group by
+      domain
+    """
+  return plpy.execute(sql)
+$$ language plpython3u;
