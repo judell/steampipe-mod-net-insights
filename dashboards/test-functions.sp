@@ -1,6 +1,13 @@
 dashboard "test_functions" {
 
-    benchmark {
+  title = "Net Insights self-test"
+
+  tags = {
+    service  = "Net/DNS"
+    type     = "Self Test"
+  }
+
+  benchmark {
       title         = "Test name server functions"
       children = [
           control.name_server_subnets_jonudell_info_has_2,

@@ -1,35 +1,3 @@
-create type dns_parent_a_record as (
-  domain text,
-  tld text,
-  parent_server text,
-  parent_ip inet
-);
-
-create type parent_server_ns_list as (
-  domain text,
-  parent_server text,
-  target text
-);
-
-create type domain_parent_server_with_ip as (
-  domain text,
-  ip_text text
-);
-
-create type name_server_ip as (
-  domain text,
-  ip inet,
-  type text,
-  target text,
-  ip_text text
-);
-
-create type control_output as (
-  resource text,
-  status text,
-  reason text
-);
-
 create or replace function domain_records(_domain text) returns setof net_dns_record as $$
   select * from net_dns_record where domain = _domain;
 $$ language sql;
@@ -78,7 +46,6 @@ create or replace function dns_record_count_for_type(_domain text, _type text) r
     domain
 $$ language sql;
 
-
 create or replace function domain_list(_domain text) returns table (domain text, tld text) as $$
   select distinct
     domain,
@@ -121,7 +88,6 @@ create or replace function domain_parent_server_ip(_domain text) returns setof n
         domain in (select parent_server from domain_parent_server);
   end;
 $$ language plpgsql;
-
 
 create or replace function dns_parent_a_record(_domain text) returns setof dns_parent_a_record as $$
   begin
