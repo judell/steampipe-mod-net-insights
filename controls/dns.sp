@@ -1,3 +1,9 @@
+locals {
+  dns_common_tags = {
+    service = "Net/DNS"
+  }
+}
+
 variable "dns_domain_names" {
   type        = list(string)
   description = "A list of domain names to run DNS checks for."
@@ -8,12 +14,6 @@ variable "domain_name" {
   type        = string
   description = "A domain name to run DNS checks for."
   default     = "whitehouse.gov"
-}
-
-locals {
-  dns_best_practices_common_tags = merge(local.net_insights_common_tags, {
-    service = "Net/DNS"
-  })
 }
 
 dashboard "dns_best_practices" {
@@ -27,6 +27,10 @@ dashboard "dns_best_practices" {
     placeholder = "example.com"
   }
 
+  tags = {
+    service = "Net/DNS"
+    type     = "Benchmark"
+  }
 
   benchmark  {
   title         = "DNS Best Practices"
