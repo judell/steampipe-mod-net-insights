@@ -1,4 +1,5 @@
-create or replace function domain_records(_domain text) returns setof net_dns_record as $$
+create or replace function domain_records(_domain text) 
+  returns setof net_dns_record as $$
   select * from net_dns_record where domain = _domain;
 $$ language sql;
 
@@ -26,7 +27,8 @@ create or replace function tld_for_domain(domain text) returns text as $$
     );
 $$ language sql;
 
-create or replace function dns_record_count(_domain text) returns table(domain text, count bigint) as $$
+create or replace function dns_record_count(_domain text) returns 
+  table(domain text, count bigint) as $$
   select 
     domain, 
     count(*) 
@@ -36,7 +38,8 @@ create or replace function dns_record_count(_domain text) returns table(domain t
     domain
 $$ language sql;
 
-create or replace function dns_record_count_for_type(_domain text, _type text) returns table(domain text, count bigint) as $$
+create or replace function dns_record_count_for_type(_domain text, _type text) 
+  returns table(domain text, count bigint) as $$
   select 
     domain, 
     count(*) 
@@ -46,7 +49,8 @@ create or replace function dns_record_count_for_type(_domain text, _type text) r
     domain
 $$ language sql;
 
-create or replace function domain_list(_domain text) returns table (domain text, tld text) as $$
+create or replace function domain_list(_domain text) returns 
+  table (domain text, tld text) as $$
   select distinct
     domain,
     tld_for_domain(_domain) as tld
@@ -56,7 +60,8 @@ create or replace function domain_list(_domain text) returns table (domain text,
     domain = _domain;
 $$ language sql;
 
-create or replace function domain_parent_server(_domain text) returns table (domain text, tld text, parent_server text) as $$
+create or replace function domain_parent_server(_domain text) 
+  returns table (domain text, tld text, parent_server text) as $$
   with domain_list as (
     select * from domain_list(_domain)
   )
@@ -74,7 +79,8 @@ create or replace function domain_parent_server(_domain text) returns table (dom
     d.type = 'SOA';
 $$ language sql;
 
-create or replace function domain_parent_server_ip(_domain text) returns setof net_dns_record as $$
+create or replace function domain_parent_server_ip(_domain text) 
+  returns setof net_dns_record as $$
   begin
     return query
       with domain_parent_server as (
@@ -89,7 +95,8 @@ create or replace function domain_parent_server_ip(_domain text) returns setof n
   end;
 $$ language plpgsql;
 
-create or replace function dns_parent_a_record(_domain text) returns setof dns_parent_a_record as $$
+create or replace function dns_parent_a_record(_domain text) 
+  returns setof dns_parent_a_record as $$
   begin
     return query
       with domain_parent_server as (
@@ -163,7 +170,7 @@ create or replace function domain_parent_server_ns_list(_domain text) returns se
   begin
     return query
        with dns_parent_a_record as (
-        select * from dns_parent_a_record($1)
+        select * from dns_parent_a_record(_domain)
       ),
       domain_parent_server_ns_list as (
         select 

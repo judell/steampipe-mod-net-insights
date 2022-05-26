@@ -93,9 +93,6 @@ control "dns_parent_ns_listed_at_parent" {
     with domain_list as (
       select * from domain_list($1)
     ),
-    dns_parent_a_record as (
-      select * from dns_parent_a_record($1)
-    ),
     domain_parent_server_ns_list as (
       select
         string_agg(target, ', ') as ns_records
@@ -423,9 +420,6 @@ control "dns_ns_local_matches_parent_ns_list" {
     with domain_list as (
       select * from domain_list($1)
     ),
-    dns_parent_a_record as (
-      select * from dns_parent_a_record($1)
-    ),
     domain_parent_server_ns_list as (
       select * from domain_parent_server_ns_list($1)
     ),
@@ -436,10 +430,10 @@ control "dns_ns_local_matches_parent_ns_list" {
       from 
         net_dns_record ndr
       join 
-        dns_parent_a_record dpr
+        domain_parent_server_ns_list dps_nl
       on 
-        ndr.domain = dpr.domain 
-        and ndr.dns_server = host(dpr.parent_ip)
+        ndr.domain = dps_nl.domain 
+        and ndr.dns_server = dps_nl.target
         and ndr.type = 'NS'
       group by 
         ndr.domain order by ndr.domain
